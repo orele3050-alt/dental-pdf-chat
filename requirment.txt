@@ -7,4 +7,3 @@ langchain-community
 langchain-huggingface
 langchain-openai
 faiss-cpu
-
