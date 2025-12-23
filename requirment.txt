@@ -1,9 +1,0 @@
-torch
-sentence-transformers
-streamlit
-pdfplumber
-langchain
-langchain-community
-langchain-huggingface
-langchain-openai
-faiss-cpu
