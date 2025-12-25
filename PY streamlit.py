@@ -13,7 +13,6 @@ if "OPENAI_API_KEY" in st.secrets:
 else:
     api_key = MY_NEW_KEY
 
-os.environ["OPENAI_API_KEY"] = api_key
 
 # --- הגדרות דף ---
 st.set_page_config(page_title="עוזר ה-PDF החכם", page_icon="📚")
@@ -53,7 +52,7 @@ if prompt := st.chat_input("שאל אותי על המסמכים..."):
         docs = vector_db.similarity_search(prompt, k=3)
         context = "\n".join([d.page_content for d in docs])
         
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=api_key)
         full_prompt = f"Context:\n{context}\n\nQuestion: {prompt}\nענה בעברית על סמך ההקשר."
         
         try:
