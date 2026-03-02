@@ -1,63 +1,45 @@
 import streamlit as st
 import os
-from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_openai import ChatOpenAI
 
-# --- הגדרת המפתח החדש שעבד בבדיקה ---
-MY_NEW_KEY = "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"
+# תיקון הכרחי ל-SQLite בשרתי Streamlit
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
-# בדיקה חכמה לשימוש ב-Secrets בענן
-if "OPENAI_API_KEY" in st.secrets:
-    api_key = st.secrets["OPENAI_API_KEY"]
-else:
-    api_key = MY_NEW_KEY
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_chroma import Chroma
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
 
+st.set_page_config(page_title="Dental Chat", page_icon="🦷")
+st.title("🦷 צ'אט עם מאמרים דנטליים")
 
-# --- הגדרות דף ---
-st.set_page_config(page_title="עוזר ה-PDF החכם", page_icon="📚")
+# קבלת המפתח מה-Secrets
+api_key = st.secrets.get("OPENAI_API_KEY")
 
-st.markdown("""<style>.stApp {direction: RTL; text-align: right;}</style>""", unsafe_allow_html=True)
-st.title("📚 צ'אט עם מסמכי ה-PDF שלך")
+if not api_key:
+    st.error("אנא הגדר את ה-API Key ב-Secrets של Streamlit")
+    st.stop()
 
-# --- טעינת בסיס הנתונים מהענן ---
-db_path = "vectorstore_db"
+# חיבור לבסיס הנתונים שהעלית (chroma.sqlite3 נמצא בתיקיית השורש)
+embeddings = OpenAIEmbeddings(model="text-embedding-3-small", openai_api_key=api_key)
+vectorstore = Chroma(persist_directory=".", embedding_function=embeddings)
+retriever = vectorstore.as_retriever(search_kwargs={"k": 3})
+llm = ChatOpenAI(model_name="gpt-4o", temperature=0, openai_api_key=api_key)
 
-@st.cache_resource
-def get_vector_db():
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-    if os.path.exists(db_path):
-        return FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
-    else:
-        st.error("שגיאה: תיקיית vectorstore_db לא נמצאה ב-GitHub!")
-        st.stop()
+template = "ענה בעברית על בסיס המידע:\n{context}\n\nשאלה: {question}"
+prompt = ChatPromptTemplate.from_template(template)
 
-vector_db = get_vector_db()
+rag_chain = (
+    {"context": retriever | (lambda docs: "\n\n".join([d.page_content for d in docs])), 
+     "question": RunnablePassthrough()}
+    | prompt | llm | StrOutputParser()
+)
 
-# --- ניהול הצ'אט ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-
-if prompt := st.chat_input("שאל אותי על המסמכים..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+if user_input := st.chat_input("שאל על המאמרים..."):
     with st.chat_message("user"):
-        st.markdown(prompt)
-
+        st.write(user_input)
     with st.chat_message("assistant"):
-        # חיפוש במסמכים
-        docs = vector_db.similarity_search(prompt, k=3)
-        context = "\n".join([d.page_content for d in docs])
-        
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, openai_api_key=api_key)
-        full_prompt = f"Context:\n{context}\n\nQuestion: {prompt}\nענה בעברית על סמך ההקשר."
-        
-        try:
-            response = llm.invoke(full_prompt).content
-            st.markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-        except Exception as e:
-            st.error(f"שגיאה: {e}")
+        with st.spinner("סורק..."):
+            st.write(rag_chain.invoke(user_input))
